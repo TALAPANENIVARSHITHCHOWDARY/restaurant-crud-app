@@ -29,13 +29,13 @@ export const DeleteDishDialog = ({ dish, isOpen, onClose, onConfirm }: DeleteDis
 
   return (
     <AlertDialog open={isOpen} onOpenChange={onClose}>
-      <AlertDialogContent>
+      <AlertDialogContent aria-describedby="delete-dialog-description">
         <AlertDialogHeader>
           <div className="flex items-center space-x-2">
             <AlertTriangle className="h-6 w-6 text-destructive" />
             <AlertDialogTitle>Delete Dish</AlertDialogTitle>
           </div>
-          <AlertDialogDescription>
+          <AlertDialogDescription id="delete-dialog-description">
             Are you sure you want to delete <strong>{dish?.name}</strong>? This action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>

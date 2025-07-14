@@ -10,13 +10,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Loader2, Upload, X } from 'lucide-react';
 import { CreateDishInput, UpdateDishInput, Dish, DISH_CATEGORIES } from '@/types/dish';
+import { validateImageUrl, validatePrice } from '@/lib/security';
 
 const dishSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100, 'Name must be less than 100 characters'),
   description: z.string().min(1, 'Description is required').max(500, 'Description must be less than 500 characters'),
-  price: z.number().min(0.01, 'Price must be greater than 0').max(999.99, 'Price must be less than $1000'),
+  price: z.number().min(0.01, 'Price must be greater than 0').max(9999.99, 'Price must be less than $10000'),
   category: z.string().min(1, 'Category is required'),
-  imageUrl: z.string().url('Please enter a valid URL').or(z.literal('')),
+  imageUrl: z.string().refine((url) => {
+    if (!url) return true;
+    const validation = validateImageUrl(url);
+    return validation.isValid;
+  }, 'Please enter a valid image URL'),
 });
 
 type DishFormData = z.infer<typeof dishSchema>;
@@ -70,6 +75,23 @@ export const DishModal = ({ isOpen, onClose, onSubmit, title, dish }: DishModalP
   const handleSubmit = async (data: DishFormData) => {
     setIsSubmitting(true);
     try {
+      // Validate price
+      const priceValidation = validatePrice(data.price);
+      if (!priceValidation.isValid) {
+        form.setError('price', { message: priceValidation.error });
+        return;
+      }
+
+      // Validate image URL
+      if (data.imageUrl) {
+        const imageValidation = validateImageUrl(data.imageUrl);
+        if (!imageValidation.isValid) {
+          form.setError('imageUrl', { message: 'Please enter a valid image URL' });
+          return;
+        }
+        data.imageUrl = imageValidation.sanitized;
+      }
+
       if (dish) {
         await onSubmit({ ...data, id: dish.id } as UpdateDishInput);
       } else {
@@ -103,9 +125,12 @@ export const DishModal = ({ isOpen, onClose, onSubmit, title, dish }: DishModalP
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto" aria-describedby="dish-form-description">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-foreground">{title}</DialogTitle>
+          <p id="dish-form-description" className="sr-only">
+            {dish ? 'Edit dish details including name, description, price, category, and image' : 'Create a new dish by filling out the form below'}
+          </p>
         </DialogHeader>
 
         <Form {...form}>

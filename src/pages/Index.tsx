@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Filter, ChefHat } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { DishCard } from '@/components/DishCard';
 import { DishModal } from '@/components/DishModal';
 import { DeleteDishDialog } from '@/components/DeleteDishDialog';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useToast } from '@/hooks/use-toast';
+import { sanitizeText, RateLimiter } from '@/lib/security';
 import { Dish, CreateDishInput, UpdateDishInput, DISH_CATEGORIES } from '@/types/dish';
 
 // Mock data - replace with Apollo Client GraphQL calls
@@ -84,6 +86,9 @@ const Index = () => {
   const [editingDish, setEditingDish] = useState<Dish | null>(null);
   const [dishToDelete, setDishToDelete] = useState<Dish | null>(null);
   const { toast } = useToast();
+  
+  // Initialize rate limiter for operations
+  const rateLimiter = useMemo(() => new RateLimiter(5, 60000), []);
 
   // Simulate loading and fetch data
   useEffect(() => {
@@ -105,9 +110,10 @@ const Index = () => {
     let filtered = dishes;
 
     if (searchTerm) {
+      const sanitizedSearchTerm = sanitizeText(searchTerm.toLowerCase());
       filtered = filtered.filter(dish =>
-        dish.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        dish.description.toLowerCase().includes(searchTerm.toLowerCase())
+        dish.name.toLowerCase().includes(sanitizedSearchTerm) ||
+        dish.description.toLowerCase().includes(sanitizedSearchTerm)
       );
     }
 
@@ -120,10 +126,26 @@ const Index = () => {
 
   // Mock GraphQL mutation: CREATE_DISH
   const handleCreateDish = async (input: CreateDishInput) => {
+    if (!rateLimiter.checkLimit('create')) {
+      toast({
+        title: 'Rate limit exceeded',
+        description: 'Please wait before creating another dish.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
+      // Sanitize input data
+      const sanitizedInput = {
+        ...input,
+        name: sanitizeText(input.name),
+        description: sanitizeText(input.description),
+      };
+
       const newDish: Dish = {
         id: Date.now().toString(),
-        ...input,
+        ...sanitizedInput,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -132,7 +154,7 @@ const Index = () => {
       setIsCreateModalOpen(false);
       toast({
         title: 'Success',
-        description: `${input.name} has been added to the menu`,
+        description: `${sanitizedInput.name} has been added to the menu`,
       });
     } catch (error) {
       toast({
@@ -145,16 +167,32 @@ const Index = () => {
 
   // Mock GraphQL mutation: UPDATE_DISH
   const handleUpdateDish = async (input: UpdateDishInput) => {
+    if (!rateLimiter.checkLimit('update')) {
+      toast({
+        title: 'Rate limit exceeded',
+        description: 'Please wait before updating another dish.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
+      // Sanitize input data
+      const sanitizedInput = {
+        ...input,
+        name: sanitizeText(input.name),
+        description: sanitizeText(input.description),
+      };
+
       setDishes(prev => prev.map(dish => 
         dish.id === input.id 
-          ? { ...dish, ...input, updatedAt: new Date().toISOString() }
+          ? { ...dish, ...sanitizedInput, updatedAt: new Date().toISOString() }
           : dish
       ));
       setEditingDish(null);
       toast({
         title: 'Success',
-        description: `${input.name} has been updated`,
+        description: `${sanitizedInput.name} has been updated`,
       });
     } catch (error) {
       toast({
@@ -167,6 +205,15 @@ const Index = () => {
 
   // Mock GraphQL mutation: DELETE_DISH
   const handleDeleteDish = async (id: string) => {
+    if (!rateLimiter.checkLimit('delete')) {
+      toast({
+        title: 'Rate limit exceeded',
+        description: 'Please wait before deleting another dish.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       const dishName = dishes.find(dish => dish.id === id)?.name;
       setDishes(prev => prev.filter(dish => dish.id !== id));
@@ -198,13 +245,16 @@ const Index = () => {
               <ChefHat className="h-8 w-8 text-primary" />
               <h1 className="text-2xl font-bold text-foreground">Restaurant Menu</h1>
             </div>
-            <Button 
-              onClick={() => setIsCreateModalOpen(true)}
-              className="bg-gradient-to-r from-primary to-primary-glow hover:shadow-lg transition-all duration-200"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Dish
-            </Button>
+            <div className="flex items-center space-x-2">
+              <ThemeToggle />
+              <Button 
+                onClick={() => setIsCreateModalOpen(true)}
+                className="bg-gradient-to-r from-primary to-primary-glow hover:shadow-lg transition-all duration-200"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Dish
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -217,8 +267,9 @@ const Index = () => {
             <Input
               placeholder="Search dishes..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value.slice(0, 100))}
               className="pl-10"
+              maxLength={100}
             />
           </div>
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
